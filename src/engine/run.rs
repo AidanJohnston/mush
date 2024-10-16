@@ -23,8 +23,11 @@ pub fn run_from_file(path: &Path) -> Result<(), std::io::Error> {
     let buf_reader = BufReader::new(file);
     let mut scanner = Scanner::new(buf_reader);
     scanner.scan_tokens()?;
-    for token in scanner.tokens() {
-        println!("{}", token)
+
+    if scanner.has_errors() {
+        for _error in scanner.errors() {
+            print!("Found error!")
+        }
     }
     Ok(())
 }
