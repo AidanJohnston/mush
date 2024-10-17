@@ -4,7 +4,7 @@ use std::{
     io::{BufRead, BufReader, Error, ErrorKind, Read, Seek, SeekFrom},
 };
 
-use super::diagnostics::error::{MushError, UnknownCharacter};
+use super::diagnostics::error::{IncompleteString, MushError, UnknownCharacter};
 
 const BUFFER_SIZE: usize = 4;
 
@@ -181,21 +181,26 @@ where
     }
 
     fn scan_token(&mut self) -> Result<(), Error> {
-        let c = self.advance()?;
+        let (c, new_buffer_position) = self.advance(self.buf_reader_position)?;
+        self.buf_reader_position = new_buffer_position;
+        self.offset += 1;
 
-        match c.as_str() {
-            "(" => self.add_keyword_token(TokenType::LeftParen),
-            ")" => self.add_keyword_token(TokenType::RightParen),
-            "{" => self.add_keyword_token(TokenType::LeftCurl),
-            "}" => self.add_keyword_token(TokenType::RightCurl),
-            "," => self.add_keyword_token(TokenType::Comma),
-            "." => self.add_keyword_token(TokenType::Dot),
-            "-" => self.add_keyword_token(TokenType::Minus),
-            "+" => self.add_keyword_token(TokenType::Plus),
-            "/" => self.add_keyword_token(TokenType::Slash),
-            ";" => self.add_keyword_token(TokenType::SemiColon),
-            "*" => self.add_keyword_token(TokenType::Star),
-            "\n" => {
+        match c {
+            '(' => self.add_keyword_token(TokenType::LeftParen),
+            ')' => self.add_keyword_token(TokenType::RightParen),
+            '{' => self.add_keyword_token(TokenType::LeftCurl),
+            '}' => self.add_keyword_token(TokenType::RightCurl),
+            ',' => self.add_keyword_token(TokenType::Comma),
+            '.' => self.add_keyword_token(TokenType::Dot),
+            '-' => self.add_keyword_token(TokenType::Minus),
+            '+' => self.add_keyword_token(TokenType::Plus),
+            ';' => self.add_keyword_token(TokenType::SemiColon),
+            '*' => self.add_keyword_token(TokenType::Star),
+            '!' => self.match_bang()?,
+            '/' => self.match_slash()?,
+            '"' => self.match_string()?,
+            ' ' | '\r' | '\t' => { /* Do nothing, skip the spaces (we didn't need them anyway) */ }
+            '\n' => {
                 self.add_keyword_token(TokenType::NewLine);
                 self.current_line += 1;
                 self.offset = 0;
@@ -208,22 +213,17 @@ where
         };
         Ok(())
     }
-
-    fn advance(&mut self) -> Result<String, Error> {
-        self.buf_reader
-            .seek(SeekFrom::Start(self.buf_reader_position))?;
+    fn advance(&mut self, buffer_position: u64) -> Result<(char, u64), Error> {
+        self.buf_reader.seek(SeekFrom::Start(buffer_position))?;
 
         let mut buffer = [0; BUFFER_SIZE];
 
         for i in 0..BUFFER_SIZE {
             self.buf_reader.read_exact(&mut buffer[i..i + 1])?;
-
             if let Ok(str_slice) = std::str::from_utf8(&buffer[..=i]) {
                 if let Some(character) = str_slice.chars().next() {
-                    self.buf_reader_position += i as u64;
-                    self.buf_reader_position += 1;
-                    self.offset += 1;
-                    return Ok(character.to_string());
+                    let new_buffer_position = buffer_position + 1 + i as u64;
+                    return Ok((character, new_buffer_position));
                 }
             }
         }
@@ -231,6 +231,80 @@ where
             ErrorKind::InvalidData,
             "Failed to decode a UTF-8 characters",
         ))
+    }
+
+    fn match_bang(&mut self) -> Result<(), Error> {
+        if self.is_done()? {
+            return Ok(());
+        }
+
+        let (next, new_buffer_position) = self.advance(self.buf_reader_position)?;
+        match next {
+            '=' => {
+                self.add_keyword_token(TokenType::BangEqual);
+                self.buf_reader_position = new_buffer_position;
+                self.offset += 1;
+            }
+            _ => self.add_keyword_token(TokenType::Bang),
+        }
+        Ok(())
+    }
+
+    fn match_slash(&mut self) -> Result<(), Error> {
+        if self.is_done()? {
+            return Ok(());
+        }
+
+        let (next, mut new_buffer_position) = self.advance(self.buf_reader_position)?;
+        match next {
+            '/' => {
+                // Comsume the rest of the commet
+                loop {
+                    if self.is_done()? {
+                        return Ok(());
+                    }
+                    let (next, next_buffer_position) = self.advance(new_buffer_position)?;
+                    new_buffer_position = next_buffer_position;
+                    if next == '\n' {
+                        break;
+                    }
+                }
+            }
+            _ => self.add_keyword_token(TokenType::Slash),
+        }
+        return Ok(());
+    }
+
+    fn match_string(&mut self) -> Result<(), Error> {
+        if self.is_done()? {
+            return Ok(());
+        }
+
+        let mut string = String::new();
+        let mut new_buffer_position = self.buf_reader_position;
+        loop {
+            if self.is_done()? {
+                return Ok(());
+            }
+            let (next, next_buffer_position) = self.advance(new_buffer_position)?;
+            string.push(next);
+            new_buffer_position = next_buffer_position;
+            match next {
+                '\n' => {
+                    self.add_error(MushError::IncompleteString(IncompleteString::new(
+                        string,
+                        self.current_line,
+                        self.offset,
+                    )));
+                    return Ok(());
+                }
+                '"' => {
+                    self.add_lexeme_token(TokenType::String, &string);
+                    return Ok(());
+                }
+                _ => string.push(next),
+            }
+        }
     }
 
     fn is_done(&mut self) -> Result<bool, Error> {
