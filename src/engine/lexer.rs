@@ -199,6 +199,7 @@ where
             '!' => self.match_bang()?,
             '/' => self.match_slash()?,
             '"' => self.match_string()?,
+            '1'..'9' => self.match_number()?,
             ' ' | '\r' | '\t' => { /* Do nothing, skip the spaces (we didn't need them anyway) */ }
             '\n' => {
                 self.add_keyword_token(TokenType::NewLine);
@@ -303,6 +304,40 @@ where
                     return Ok(());
                 }
                 _ => string.push(next),
+            }
+        }
+    }
+
+    fn match_number(&mut self) -> Result<(), Error> {
+        if self.is_done()? {
+            return Ok(());
+        }
+        let mut number = String::new();
+        let mut new_buffer_position = self.buf_reader_position;
+        loop {
+            if self.is_done()? {
+                return Ok(());
+            }
+            let (next, next_buffer_position) = self.advance(new_buffer_position)?;
+            new_buffer_position = next_buffer_position;
+            number.push(next);
+            match next {
+                '0'..'9' => number.push(next),
+                '.' => {
+                    number.push('.');
+                    loop {
+                        let (next, next_buffer_position) = self.advance(new_buffer_position)?;
+                        new_buffer_position = next_buffer_position;
+                        match next {
+                            '0'..'9' => number.push(next),
+                            _ => self.add_lexeme_token(TokenType::Float, &number),
+                        }
+                    }
+                }
+                _ => {
+                    self.add_lexeme_token(TokenType::Interger, &number);
+                    return Ok(());
+                }
             }
         }
     }
