@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use super::file_extension::has_valid_file_extension;
-use super::lexer::Scanner;
+use super::lexer::{MushContext, Scanner};
 
 pub fn run_from_file(path: &Path) -> Result<(), std::io::Error> {
     let file = match File::open(path) {
@@ -21,14 +21,18 @@ pub fn run_from_file(path: &Path) -> Result<(), std::io::Error> {
     }
 
     let buf_reader = BufReader::new(file);
-    let mut scanner = Scanner::new(buf_reader);
+    let mush_context = MushContext::new(path.to_path_buf(), "".to_string(), 0, 0);
+    let mut scanner = Scanner::new(buf_reader, mush_context);
     scanner.scan_tokens()?;
 
+    println!("{}", scanner.errors().len());
     if scanner.has_errors() {
-        for _error in scanner.errors() {
-            print!("Found error!")
+        for error in scanner.errors() {
+            print!("{}", error.report());
         }
     }
+
+    for token in scanner.tokens() {}
     Ok(())
 }
 

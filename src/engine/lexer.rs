@@ -1,14 +1,14 @@
 use std::{
-    collections::HashMap,
-    fmt::Display,
     io::{BufRead, BufReader, Error, ErrorKind, Read, Seek, SeekFrom},
+    path::{Path, PathBuf},
 };
 
-use super::diagnostics::error::{IncompleteString, MushError, UnknownCharacter};
+use super::diagnostics::error::MushError;
 
 const BUFFER_SIZE: usize = 4;
 
-pub enum TokenType {
+#[derive(Debug)]
+pub enum KeywordToken {
     // Single Character
     LeftParen,
     RightParen,
@@ -33,11 +33,6 @@ pub enum TokenType {
     Less,
     LessEqual,
 
-    Identifier,
-    String,
-    Interger,
-    Float,
-
     // Keywords
     And,
     Fn,
@@ -54,88 +49,109 @@ pub enum TokenType {
     EndOfFile,
 }
 
-fn get_token_from_keyword(keyword: &str) -> Option<TokenType> {
-    match keyword {
-        "and" => Some(TokenType::And),
-        "fn" => Some(TokenType::Fn),
-        "for" => Some(TokenType::For),
-        "if" => Some(TokenType::If),
-        "None" => Some(TokenType::None),
-        "or" => Some(TokenType::Or),
-        "return" => Some(TokenType::Return),
-        "True" => Some(TokenType::True),
-        "False" => Some(TokenType::False),
-        "let" => Some(TokenType::Let),
-        "while" => Some(TokenType::While),
-        _ => None,
-    }
-}
-
-trait Token {
-    fn token_type(&self) -> &TokenType;
-    fn line(&self) -> i32;
-    fn offset(&self) -> i32;
-}
-
-pub struct LexemeToken {
-    token_type: TokenType,
-    lexeme: String,
-    line: i32,
-    offset: i32,
-}
-impl LexemeToken {
-    pub fn new(token_type: TokenType, lexeme: &str, line: i32, offset: i32) -> Self {
-        Self {
-            token_type,
-            lexeme: lexeme.to_owned(),
-            line,
-            offset,
-        }
-    }
-
-    fn lexeme(&self) -> &str {
-        self.lexeme.as_ref()
-    }
-}
-impl Token for LexemeToken {
-    fn token_type(&self) -> &TokenType {
-        &self.token_type
-    }
-
-    fn line(&self) -> i32 {
-        self.line
-    }
-
-    fn offset(&self) -> i32 {
-        self.offset
-    }
-}
-
-pub struct KeywordToken {
-    token_type: TokenType,
-    line: i32,
-    offset: i32,
-}
 impl KeywordToken {
-    pub fn new(token_type: TokenType, line: i32, offset: i32) -> Self {
-        Self {
-            token_type,
-            line,
-            offset,
+    fn as_str(&self) -> &str {
+        match self {
+            KeywordToken::LeftParen => "(",
+            KeywordToken::RightParen => ")",
+            KeywordToken::LeftCurl => todo!(),
+            KeywordToken::RightCurl => todo!(),
+            KeywordToken::Comma => todo!(),
+            KeywordToken::Dot => todo!(),
+            KeywordToken::Minus => todo!(),
+            KeywordToken::Plus => todo!(),
+            KeywordToken::SemiColon => todo!(),
+            KeywordToken::NewLine => todo!(),
+            KeywordToken::Slash => todo!(),
+            KeywordToken::Star => todo!(),
+            KeywordToken::Bang => todo!(),
+            KeywordToken::BangEqual => todo!(),
+            KeywordToken::Equal => todo!(),
+            KeywordToken::EqualEqual => todo!(),
+            KeywordToken::Greater => todo!(),
+            KeywordToken::GreaterEqual => todo!(),
+            KeywordToken::Less => todo!(),
+            KeywordToken::LessEqual => todo!(),
+            KeywordToken::And => todo!(),
+            KeywordToken::Fn => todo!(),
+            KeywordToken::For => todo!(),
+            KeywordToken::If => todo!(),
+            KeywordToken::None => todo!(),
+            KeywordToken::Or => todo!(),
+            KeywordToken::Return => todo!(),
+            KeywordToken::True => todo!(),
+            KeywordToken::False => todo!(),
+            KeywordToken::Let => todo!(),
+            KeywordToken::While => todo!(),
+            KeywordToken::EndOfFile => todo!(),
         }
     }
 }
-impl Token for KeywordToken {
-    fn token_type(&self) -> &TokenType {
-        &self.token_type
+
+#[derive(Debug)]
+pub enum LexemeToken {
+    Identifier(String),
+    String(String),
+    Interger(String),
+    Float(String),
+}
+
+pub enum Token {
+    KeywordToken { token_type: KeywordToken },
+    LexemeToken { token_type: LexemeToken },
+}
+
+#[derive(Clone)]
+pub struct MushContext {
+    file: PathBuf,
+    line: String,
+    line_number: u64,
+    offset: u64,
+}
+impl MushContext {
+    pub fn new(file: PathBuf, line: String, line_number: u64, offset: u64) -> Self {
+        Self {
+            file,
+            line,
+            line_number,
+            offset,
+        }
     }
 
-    fn line(&self) -> i32 {
-        self.line
+    pub fn line(&self) -> &str {
+        &self.line
     }
 
-    fn offset(&self) -> i32 {
+    pub fn set_line(&mut self, line: String) {
+        self.line = line;
+    }
+
+    pub fn line_number(&self) -> u64 {
+        self.line_number
+    }
+
+    pub fn set_line_number(&mut self, line_number: u64) {
+        self.line_number = line_number;
+    }
+
+    pub fn increment_line_number(&mut self) {
+        self.line_number += 1;
+    }
+
+    pub fn offset(&self) -> u64 {
         self.offset
+    }
+
+    pub fn set_offset(&mut self, offset: u64) {
+        self.offset = offset;
+    }
+
+    pub fn increment_offset(&mut self) {
+        self.offset += 1
+    }
+
+    pub fn file(&self) -> &PathBuf {
+        &self.file
     }
 }
 
@@ -144,25 +160,22 @@ where
     R: Seek + Read,
 {
     buf_reader: BufReader<R>,
-    tokens: Vec<Box<dyn Token>>,
-    errors: Vec<MushError>,
-
-    current_line: i32,
-    offset: i32,
     buf_reader_position: u64,
+    tokens: Vec<Token>,
+    errors: Vec<MushError>,
+    scanner_ctx: MushContext,
 }
 impl<R> Scanner<R>
 where
     R: Seek + Read,
 {
-    pub fn new(buf_reader: BufReader<R>) -> Self {
+    pub fn new(buf_reader: BufReader<R>, scanner_ctx: MushContext) -> Self {
         Self {
             buf_reader,
+            buf_reader_position: 0,
             tokens: Vec::new(),
             errors: Vec::new(),
-            current_line: 1,
-            offset: 0,
-            buf_reader_position: 0,
+            scanner_ctx,
         }
     }
 
@@ -175,7 +188,7 @@ where
             is_done = self.is_done()?;
         }
 
-        self.add_keyword_token(TokenType::EndOfFile);
+        self.add_keyword_token(KeywordToken::EndOfFile);
 
         Ok(())
     }
@@ -183,34 +196,33 @@ where
     fn scan_token(&mut self) -> Result<(), Error> {
         let (c, new_buffer_position) = self.advance(self.buf_reader_position)?;
         self.buf_reader_position = new_buffer_position;
-        self.offset += 1;
+        self.scanner_ctx.increment_offset();
 
         match c {
-            '(' => self.add_keyword_token(TokenType::LeftParen),
-            ')' => self.add_keyword_token(TokenType::RightParen),
-            '{' => self.add_keyword_token(TokenType::LeftCurl),
-            '}' => self.add_keyword_token(TokenType::RightCurl),
-            ',' => self.add_keyword_token(TokenType::Comma),
-            '.' => self.add_keyword_token(TokenType::Dot),
-            '-' => self.add_keyword_token(TokenType::Minus),
-            '+' => self.add_keyword_token(TokenType::Plus),
-            ';' => self.add_keyword_token(TokenType::SemiColon),
-            '*' => self.add_keyword_token(TokenType::Star),
+            '(' => self.add_keyword_token(KeywordToken::LeftParen),
+            ')' => self.add_keyword_token(KeywordToken::RightParen),
+            '{' => self.add_keyword_token(KeywordToken::LeftCurl),
+            '}' => self.add_keyword_token(KeywordToken::RightCurl),
+            ',' => self.add_keyword_token(KeywordToken::Comma),
+            '.' => self.add_keyword_token(KeywordToken::Dot),
+            '-' => self.add_keyword_token(KeywordToken::Minus),
+            '+' => self.add_keyword_token(KeywordToken::Plus),
+            ';' => self.add_keyword_token(KeywordToken::SemiColon),
+            '*' => self.add_keyword_token(KeywordToken::Star),
             '!' => self.match_bang()?,
             '/' => self.match_slash()?,
             '"' => self.match_string()?,
             '1'..'9' => self.match_number()?,
             ' ' | '\r' | '\t' => { /* Do nothing, skip the spaces (we didn't need them anyway) */ }
             '\n' => {
-                self.add_keyword_token(TokenType::NewLine);
-                self.current_line += 1;
-                self.offset = 0;
+                self.add_keyword_token(KeywordToken::NewLine);
+                self.scanner_ctx.increment_line_number();
+                self.scanner_ctx.increment_offset();
             }
-            _ => self.add_error(MushError::UnknownCharacter(UnknownCharacter::new(
-                c,
-                self.current_line,
-                self.offset,
-            ))),
+            _ => self.add_error(MushError::UnknownCharacter {
+                unknown_character: c,
+                ctx: self.scanner_ctx.clone(),
+            }),
         };
         Ok(())
     }
@@ -242,11 +254,11 @@ where
         let (next, new_buffer_position) = self.advance(self.buf_reader_position)?;
         match next {
             '=' => {
-                self.add_keyword_token(TokenType::BangEqual);
+                self.add_keyword_token(KeywordToken::BangEqual);
                 self.buf_reader_position = new_buffer_position;
-                self.offset += 1;
+                self.scanner_ctx.increment_offset();
             }
-            _ => self.add_keyword_token(TokenType::Bang),
+            _ => self.add_keyword_token(KeywordToken::Bang),
         }
         Ok(())
     }
@@ -271,7 +283,7 @@ where
                     }
                 }
             }
-            _ => self.add_keyword_token(TokenType::Slash),
+            _ => self.add_keyword_token(KeywordToken::Slash),
         }
         return Ok(());
     }
@@ -292,15 +304,13 @@ where
             new_buffer_position = next_buffer_position;
             match next {
                 '\n' => {
-                    self.add_error(MushError::IncompleteString(IncompleteString::new(
-                        string,
-                        self.current_line,
-                        self.offset,
-                    )));
+                    self.add_error(MushError::IncompleteString {
+                        ctx: self.scanner_ctx.clone(),
+                    });
                     return Ok(());
                 }
                 '"' => {
-                    self.add_lexeme_token(TokenType::String, &string);
+                    self.add_lexeme_token(LexemeToken::String(string));
                     return Ok(());
                 }
                 _ => string.push(next),
@@ -330,12 +340,15 @@ where
                         new_buffer_position = next_buffer_position;
                         match next {
                             '0'..'9' => number.push(next),
-                            _ => self.add_lexeme_token(TokenType::Float, &number),
+                            _ => {
+                                self.add_lexeme_token(LexemeToken::Float(number));
+                                return Ok(());
+                            }
                         }
                     }
                 }
                 _ => {
-                    self.add_lexeme_token(TokenType::Interger, &number);
+                    self.add_lexeme_token(LexemeToken::Interger(number));
                     return Ok(());
                 }
             }
@@ -351,21 +364,25 @@ where
         self.errors.push(mush_error)
     }
 
-    fn add_keyword_token(&mut self, token_type: TokenType) {
-        let token = KeywordToken::new(token_type, self.current_line, self.offset);
-        self.tokens.push(Box::new(token));
+    fn add_keyword_token(&mut self, token_type: KeywordToken) {
+        let token = Token::KeywordToken { token_type };
+        self.tokens.push(token)
     }
 
-    fn add_lexeme_token(&mut self, token_type: TokenType, lexeme: &str) {
-        let token = LexemeToken::new(token_type, lexeme, self.current_line, self.offset);
-        self.tokens.push(Box::new(token));
+    fn add_lexeme_token(&mut self, token_type: LexemeToken) {
+        let token = Token::LexemeToken { token_type };
+        self.tokens.push(token)
     }
 
     pub fn has_errors(&self) -> bool {
         self.errors.is_empty()
     }
 
-    pub fn errors(&self) -> &[MushError] {
+    pub fn errors(&self) -> &Vec<MushError> {
         &self.errors
+    }
+
+    pub fn tokens(&self) -> &[Token] {
+        &self.tokens
     }
 }

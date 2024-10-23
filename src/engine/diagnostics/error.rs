@@ -1,49 +1,39 @@
-use std::{
-    io::Write,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use std::io::{Error, Write};
 
-static ERROR_TYPE_COUNTER: AtomicUsize = AtomicUsize::new(1);
+use crate::engine::lexer::MushContext;
+
+use super::output::{ErrorBuilder, ErrorLine, ErrorString};
 
 pub enum MushError {
-    UnknownCharacter(UnknownCharacter),
-    IncompleteString(IncompleteString),
+    UnknownCharacter {
+        unknown_character: char,
+        ctx: MushContext,
+    },
+    IncompleteString {
+        ctx: MushContext,
+    },
 }
 
 impl MushError {
-    fn id(&self) -> String {
-        let type_id: usize = ERROR_TYPE_COUNTER.fetch_add(1, Ordering::SeqCst);
-        format!("E{:04}", type_id).to_owned()
-    }
-}
-
-pub struct UnknownCharacter {
-    character: char,
-    line: i32,
-    offset: i32,
-}
-
-impl UnknownCharacter {
-    pub fn new(character: char, line: i32, offset: i32) -> Self {
-        Self {
-            character,
-            line,
-            offset,
-        }
-    }
-}
-
-pub struct IncompleteString {
-    string: String,
-    line: i32,
-    offset: i32,
-}
-impl IncompleteString {
-    pub fn new(string: String, line: i32, offset: i32) -> Self {
-        Self {
-            string,
-            line,
-            offset,
+    pub fn report(&self) -> String {
+        match self {
+            MushError::UnknownCharacter {
+                unknown_character,
+                ctx,
+            } => ErrorBuilder::new()
+                .set_header(
+                    Some(ErrorString::Error),
+                    format!("Unknown character '{}'.", unknown_character),
+                )
+                .set_file_path(ctx.file().to_path_buf())
+                .add_error_line(ErrorLine::InlineArrowError {
+                    line_number: ctx.line_number(),
+                    offset: ctx.offset(),
+                    line_string: ctx.line().to_string(),
+                    error_msg: "Unknown character.".to_string(),
+                })
+                .build(),
+            MushError::IncompleteString { ctx } => todo!(),
         }
     }
 }
