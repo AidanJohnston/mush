@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
+use super::diagnostics::error::MushError;
 use super::file_extension::has_valid_file_extension;
 use super::lexer::{MushContext, Scanner};
 
@@ -25,11 +26,8 @@ pub fn run_from_file(path: &Path) -> Result<(), std::io::Error> {
     let mut scanner = Scanner::new(buf_reader, mush_context);
     scanner.scan_tokens()?;
 
-    println!("{}", scanner.errors().len());
-    if scanner.has_errors() {
-        for error in scanner.errors() {
-            print!("{}", error.report());
-        }
+    for error in scanner.errors() {
+        println!("{}", error.report());
     }
 
     for token in scanner.tokens() {}

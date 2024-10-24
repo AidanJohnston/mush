@@ -101,7 +101,7 @@ pub enum Token {
     LexemeToken { token_type: LexemeToken },
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct MushContext {
     file: PathBuf,
     line: String,
@@ -378,7 +378,7 @@ where
         self.errors.is_empty()
     }
 
-    pub fn errors(&self) -> &Vec<MushError> {
+    pub fn errors(&self) -> &[MushError] {
         &self.errors
     }
 
