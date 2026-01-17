@@ -30,7 +30,12 @@ pub fn run_from_file(path: &Path) -> Result<(), std::io::Error> {
         println!("{}", error.report());
     }
 
-    for token in scanner.tokens() {}
+    for token in scanner.tokens() {
+        match token {
+            super::lexer::Token::KeywordToken { token_type } => print!("{}", token_type.as_str()),
+            super::lexer::Token::LexemeToken { token_type } => print!("{}", token_type.as_str()),
+        }
+    }
     Ok(())
 }
 

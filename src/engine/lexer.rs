@@ -1,105 +1,14 @@
 use std::{
     io::{BufRead, BufReader, Error, ErrorKind, Read, Seek, SeekFrom},
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
-use super::diagnostics::error::MushError;
+use super::{
+    diagnostics::error::MushError,
+    tokens::{SingleToken, Token},
+};
 
 const BUFFER_SIZE: usize = 4;
-
-#[derive(Debug)]
-pub enum KeywordToken {
-    // Single Character
-    LeftParen,
-    RightParen,
-    LeftCurl,
-    RightCurl,
-    Comma,
-    Dot,
-    Minus,
-    Plus,
-    SemiColon,
-    NewLine,
-    Slash,
-    Star,
-
-    // Comparison
-    Bang,
-    BangEqual,
-    Equal,
-    EqualEqual,
-    Greater,
-    GreaterEqual,
-    Less,
-    LessEqual,
-
-    // Keywords
-    And,
-    Fn,
-    For,
-    If,
-    None,
-    Or,
-    Return,
-    True,
-    False,
-    Let,
-    While,
-
-    EndOfFile,
-}
-
-impl KeywordToken {
-    fn as_str(&self) -> &str {
-        match self {
-            KeywordToken::LeftParen => "(",
-            KeywordToken::RightParen => ")",
-            KeywordToken::LeftCurl => todo!(),
-            KeywordToken::RightCurl => todo!(),
-            KeywordToken::Comma => todo!(),
-            KeywordToken::Dot => todo!(),
-            KeywordToken::Minus => todo!(),
-            KeywordToken::Plus => todo!(),
-            KeywordToken::SemiColon => todo!(),
-            KeywordToken::NewLine => todo!(),
-            KeywordToken::Slash => todo!(),
-            KeywordToken::Star => todo!(),
-            KeywordToken::Bang => todo!(),
-            KeywordToken::BangEqual => todo!(),
-            KeywordToken::Equal => todo!(),
-            KeywordToken::EqualEqual => todo!(),
-            KeywordToken::Greater => todo!(),
-            KeywordToken::GreaterEqual => todo!(),
-            KeywordToken::Less => todo!(),
-            KeywordToken::LessEqual => todo!(),
-            KeywordToken::And => todo!(),
-            KeywordToken::Fn => todo!(),
-            KeywordToken::For => todo!(),
-            KeywordToken::If => todo!(),
-            KeywordToken::None => todo!(),
-            KeywordToken::Or => todo!(),
-            KeywordToken::Return => todo!(),
-            KeywordToken::True => todo!(),
-            KeywordToken::False => todo!(),
-            KeywordToken::Let => todo!(),
-            KeywordToken::While => todo!(),
-            KeywordToken::EndOfFile => todo!(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum LexemeToken {
-    Identifier(String),
-    String(String),
-    Interger(String),
-    Float(String),
-}
-
-pub enum Token {
-    KeywordToken { token_type: KeywordToken },
-    LexemeToken { token_type: LexemeToken },
-}
 
 #[derive(Debug, Clone)]
 pub struct MushContext {
@@ -188,7 +97,7 @@ where
             is_done = self.is_done()?;
         }
 
-        self.add_keyword_token(KeywordToken::EndOfFile);
+        self.add_keyword_token(Token::EndOfFile);
 
         Ok(())
     }
@@ -199,23 +108,26 @@ where
         self.scanner_ctx.increment_offset();
 
         match c {
-            '(' => self.add_keyword_token(KeywordToken::LeftParen),
-            ')' => self.add_keyword_token(KeywordToken::RightParen),
-            '{' => self.add_keyword_token(KeywordToken::LeftCurl),
-            '}' => self.add_keyword_token(KeywordToken::RightCurl),
-            ',' => self.add_keyword_token(KeywordToken::Comma),
-            '.' => self.add_keyword_token(KeywordToken::Dot),
-            '-' => self.add_keyword_token(KeywordToken::Minus),
-            '+' => self.add_keyword_token(KeywordToken::Plus),
-            ';' => self.add_keyword_token(KeywordToken::SemiColon),
-            '*' => self.add_keyword_token(KeywordToken::Star),
-            '!' => self.match_bang()?,
+            '(' => self.add_single_token(SingleToken::LeftParen),
+            ')' => self.add_single_token(SingleToken::RightParen),
+            '{' => self.add_single_token(SingleToken::LeftCurl),
+            '}' => self.add_single_token(SingleToken::RightCurl),
+            ',' => self.add_single_token(SingleToken::Comma),
+            '.' => self.add_single_token(SingleToken::Dot),
+            '-' => self.add_single_token(SingleToken::Minus),
+            '+' => self.add_single_token(SingleToken::Plus),
+            ';' => self.add_single_token(SingleToken::SemiColon),
+            '*' => self.add_single_token(SingleToken::Star),
+            '!' => self.match_next()?,
+            '=' => self.match_equal()?,
+            // '>' -> self.match_greater()?,
+            // '<' -> self.match_less()?,
             '/' => self.match_slash()?,
             '"' => self.match_string()?,
             '1'..'9' => self.match_number()?,
             ' ' | '\r' | '\t' => { /* Do nothing, skip the spaces (we didn't need them anyway) */ }
             '\n' => {
-                self.add_keyword_token(KeywordToken::NewLine);
+                self.add_keyword_token(Token::NewLine);
                 self.scanner_ctx.increment_line_number();
                 self.scanner_ctx.increment_offset();
             }
@@ -226,6 +138,7 @@ where
         };
         Ok(())
     }
+
     fn advance(&mut self, buffer_position: u64) -> Result<(char, u64), Error> {
         self.buf_reader.seek(SeekFrom::Start(buffer_position))?;
 
@@ -246,7 +159,22 @@ where
         ))
     }
 
-    fn match_bang(&mut self) -> Result<(), Error> {
+    fn match_next(&mut self, single_token: Token, composite_token: Token) -> Result<(), Error> {
+        if self.is_done()? {
+            return Ok(());
+        }
+        let (next, new_buffer_position) = self.advance(self.buf_reader_position)?;
+        if next == next_token_char {
+            self.add_keyword_token(composite_token);
+            self.buf_reader_position = new_buffer_position;
+            self.scanner_ctx.increment_offset();
+            return Ok(());
+        }
+        self.add_keyword_token(single_token);
+        Ok(())
+    }
+
+    fn match_equal(&mut self) -> Result<(), Error> {
         if self.is_done()? {
             return Ok(());
         }
@@ -254,11 +182,11 @@ where
         let (next, new_buffer_position) = self.advance(self.buf_reader_position)?;
         match next {
             '=' => {
-                self.add_keyword_token(KeywordToken::BangEqual);
+                self.add_keyword_token(Token::EqualEqual);
                 self.buf_reader_position = new_buffer_position;
                 self.scanner_ctx.increment_offset();
             }
-            _ => self.add_keyword_token(KeywordToken::Bang),
+            _ => self.add_keyword_token(Token::Equal),
         }
         Ok(())
     }
@@ -283,7 +211,7 @@ where
                     }
                 }
             }
-            _ => self.add_keyword_token(KeywordToken::Slash),
+            _ => self.add_keyword_token(Token::Slash),
         }
         return Ok(());
     }
@@ -300,7 +228,6 @@ where
                 return Ok(());
             }
             let (next, next_buffer_position) = self.advance(new_buffer_position)?;
-            string.push(next);
             new_buffer_position = next_buffer_position;
             match next {
                 '\n' => {
@@ -364,13 +291,12 @@ where
         self.errors.push(mush_error)
     }
 
-    fn add_keyword_token(&mut self, token_type: KeywordToken) {
-        let token = Token::KeywordToken { token_type };
+    fn add_token(&mut self, token: Token) {
         self.tokens.push(token)
     }
 
-    fn add_lexeme_token(&mut self, token_type: LexemeToken) {
-        let token = Token::LexemeToken { token_type };
+    fn add_single_token(&mut self, single_token: SingleToken) {
+        let token = Token::SingleToken(single_token);
         self.tokens.push(token)
     }
 
